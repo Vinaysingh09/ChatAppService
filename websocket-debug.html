@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔧 WebSocket Debug Tool</title>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px; 
+            background-color: #f5f5f5;
+        }
+        .container { 
+            max-width: 800px; 
+            margin: 0 auto; 
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .debug-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        .input-group {
+            margin: 10px 0;
+        }
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .input-group input {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background-color: #0056b3; }
+        .log {
+            background-color: #000;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .success { color: #28a745; font-weight: bold; }
+        .error { color: #dc3545; font-weight: bold; }
+        .warning { color: #ffc107; font-weight: bold; }
+        .info { color: #17a2b8; font-weight: bold; }
+        .token-display {
+            background-color: #e9ecef;
+            padding: 10px;
+            border-radius: 4px;
+            word-break: break-all;
+            font-family: monospace;
+            font-size: 12px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 WebSocket JWT Debug Tool</h1>
+        <p>This tool helps debug WebSocket authentication issues</p>
+
+        <!-- Step 1: Login -->
+        <div class="debug-section">
+            <h3>📝 Step 1: Login & Get JWT Token</h3>
+            <div class="input-group">
+                <label>Phone Number:</label>
+                <input type="text" id="phoneNumber" value="9807985708" placeholder="+1234567890">
+            </div>
+            <div class="input-group">
+                <label>Password:</label>
+                <input type="password" id="password" value="vinay123" placeholder="password">
+            </div>
+            <button onclick="debugLogin()">🔑 Login & Get Token</button>
+            <button onclick="clearLog()">🗑️ Clear Log</button>
+        </div>
+
+        <!-- Step 2: Token Analysis -->
+        <div class="debug-section">
+            <h3>🔍 Step 2: Token Analysis</h3>
+            <div id="tokenInfo" class="token-display">
+                Token will appear here after login...
+            </div>
+            <button onclick="analyzeToken()">🔬 Analyze JWT Token</button>
+            <button onclick="testTokenValidation()">✅ Test Token Validation</button>
+        </div>
+
+        <!-- Step 3: WebSocket Connection -->
+        <div class="debug-section">
+            <h3>🚀 Step 3: WebSocket Connection Test</h3>
+            <button onclick="testWebSocketConnection()">🔌 Test WebSocket Connection</button>
+            <button onclick="testDirectConnection()">🔗 Test Direct SockJS Connection</button>
+            <button onclick="disconnect()">❌ Disconnect</button>
+        </div>
+
+        <!-- Debug Log -->
+        <div class="debug-section">
+            <h3>📋 Debug Log</h3>
+            <div id="debugLog" class="log">Ready for debugging...\n</div>
+        </div>
+    </div>
+
+    <script>
+        let currentToken = null;
+        let stompClient = null;
+        let socket = null;
+
+        const API_BASE = 'http://localhost:8081/api';
+        const WS_URL = 'http://localhost:8081/ws';
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logElement = document.getElementById('debugLog');
+            const colors = {
+                success: '✅',
+                error: '❌', 
+                warning: '⚠️',
+                info: 'ℹ️'
+            };
+            
+            logElement.textContent += `[${timestamp}] ${colors[type]} ${message}\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('debugLog').textContent = 'Debug log cleared...\n';
+        }
+
+        async function debugLogin() {
+            const phoneNumber = document.getElementById('phoneNumber').value;
+            const password = document.getElementById('password').value;
+
+            log(`🔑 Attempting login for: ${phoneNumber}`, 'info');
+
+            try {
+                const response = await fetch(`${API_BASE}/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        phoneNumber: phoneNumber,
+                        password: password
+                    })
+                });
+
+                log(`📡 Login response status: ${response.status}`, 'info');
+
+                if (response.ok) {
+                    const authData = await response.json();
+                    currentToken = authData.token;
+                    
+                    log(`✅ Login successful!`, 'success');
+                    log(`📄 Token received (length: ${currentToken.length})`, 'success');
+                    
+                    // Display token
+                    document.getElementById('tokenInfo').textContent = `Token: ${currentToken}`;
+                    
+                    // Auto-analyze token
+                    analyzeToken();
+                } else {
+                    const errorText = await response.text();
+                    log(`❌ Login failed: ${response.status} - ${errorText}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Login error: ${error.message}`, 'error');
+            }
+        }
+
+        function analyzeToken() {
+            if (!currentToken) {
+                log(`❌ No token available. Please login first.`, 'error');
+                return;
+            }
+
+            try {
+                // Split JWT token
+                const parts = currentToken.split('.');
+                if (parts.length !== 3) {
+                    log(`❌ Invalid JWT format. Expected 3 parts, got ${parts.length}`, 'error');
+                    return;
+                }
+
+                // Decode header
+                const header = JSON.parse(atob(parts[0]));
+                log(`🔍 JWT Header: ${JSON.stringify(header, null, 2)}`, 'info');
+
+                // Decode payload
+                const payload = JSON.parse(atob(parts[1]));
+                log(`🔍 JWT Payload: ${JSON.stringify(payload, null, 2)}`, 'info');
+
+                // Check expiration
+                const now = Math.floor(Date.now() / 1000);
+                const exp = payload.exp;
+                const timeLeft = exp - now;
+
+                if (timeLeft > 0) {
+                    log(`✅ Token valid for ${Math.floor(timeLeft / 3600)} hours ${Math.floor((timeLeft % 3600) / 60)} minutes`, 'success');
+                } else {
+                    log(`❌ Token expired ${Math.floor(-timeLeft / 60)} minutes ago!`, 'error');
+                }
+
+            } catch (error) {
+                log(`❌ Token analysis failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testTokenValidation() {
+            if (!currentToken) {
+                log(`❌ No token available. Please login first.`, 'error');
+                return;
+            }
+
+            log(`🔍 Testing token validation via API call...`, 'info');
+
+            try {
+                const response = await fetch(`${API_BASE}/users/me`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const userData = await response.json();
+                    log(`✅ Token validation successful! User: ${userData.username}`, 'success');
+                } else {
+                    log(`❌ Token validation failed: ${response.status}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Token validation error: ${error.message}`, 'error');
+            }
+        }
+
+        function testWebSocketConnection() {
+            if (!currentToken) {
+                log(`❌ No token available. Please login first.`, 'error');
+                return;
+            }
+
+            log(`🚀 Testing WebSocket connection with JWT...`, 'info');
+            log(`🔗 URL: ${WS_URL}?token=${currentToken.substring(0, 20)}...`, 'info');
+
+            try {
+                socket = new SockJS(`${WS_URL}?token=${currentToken}`);
+                stompClient = Stomp.over(socket);
+
+                // Enable debug for detailed logging
+                stompClient.debug = function(str) {
+                    log(`[STOMP] ${str}`, 'info');
+                };
+
+                stompClient.connect({}, 
+                    function(frame) {
+                        log(`✅ WebSocket connected successfully!`, 'success');
+                        log(`📄 Frame: ${frame}`, 'success');
+                    },
+                    function(error) {
+                        log(`❌ WebSocket connection failed: ${error}`, 'error');
+                        
+                        // Additional error analysis
+                        if (error.includes('403')) {
+                            log(`💡 403 Error suggests JWT authentication failed`, 'warning');
+                            log(`💡 Check server logs for WebSocket authentication details`, 'warning');
+                        }
+                    }
+                );
+
+                // Listen for socket events
+                socket.onopen = function() {
+                    log(`🔌 SockJS connection opened`, 'success');
+                };
+
+                socket.onclose = function(event) {
+                    log(`🔌 SockJS connection closed: Code ${event.code}, Reason: ${event.reason}`, 'warning');
+                };
+
+                socket.onerror = function(error) {
+                    log(`🔌 SockJS error: ${error}`, 'error');
+                };
+
+            } catch (error) {
+                log(`❌ WebSocket setup error: ${error.message}`, 'error');
+            }
+        }
+
+        function testDirectConnection() {
+            if (!currentToken) {
+                log(`❌ No token available. Please login first.`, 'error');
+                return;
+            }
+
+            log(`🔗 Testing direct SockJS connection...`, 'info');
+
+            try {
+                const directSocket = new SockJS(`${WS_URL}?token=${currentToken}`);
+                
+                directSocket.onopen = function() {
+                    log(`✅ Direct SockJS connection successful!`, 'success');
+                    directSocket.close();
+                };
+
+                directSocket.onclose = function(event) {
+                    if (event.code === 1000) {
+                        log(`✅ Direct connection test completed successfully`, 'success');
+                    } else {
+                        log(`❌ Direct connection closed with error: Code ${event.code}`, 'error');
+                    }
+                };
+
+                directSocket.onerror = function(error) {
+                    log(`❌ Direct connection error: ${error}`, 'error');
+                };
+
+            } catch (error) {
+                log(`❌ Direct connection test error: ${error.message}`, 'error');
+            }
+        }
+
+        function disconnect() {
+            if (stompClient) {
+                stompClient.disconnect();
+                stompClient = null;
+                log(`🔌 Disconnected from WebSocket`, 'info');
+            }
+            if (socket) {
+                socket.close();
+                socket = null;
+            }
+        }
+
+        // Auto-clear log on page load
+        window.onload = function() {
+            log(`🔧 WebSocket Debug Tool loaded`, 'success');
+            log(`🌐 API Base: ${API_BASE}`, 'info');
+            log(`📡 WebSocket URL: ${WS_URL}`, 'info');
+            log(`📝 Ready to debug WebSocket authentication issues!`, 'info');
+        };
+    </script>
+</body>
+</html> 

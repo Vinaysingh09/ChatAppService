@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>🔧 Simple WebSocket Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .log { background: black; color: lime; padding: 15px; height: 400px; overflow-y: auto; font-family: monospace; }
+        button { margin: 10px; padding: 10px 20px; }
+    </style>
+</head>
+<body>
+    <h1>🔧 Simple WebSocket Connection Test</h1>
+    <p>Testing WebSocket without authentication temporarily to verify the basic WebSocket connection works</p>
+    
+    <button onclick="testBasicConnection()">🔌 Test Basic WebSocket</button>
+    <button onclick="testWithAuth()">🔑 Test With Auth</button>
+    <button onclick="clearLog()">🗑️ Clear Log</button>
+    
+    <div id="log" class="log">Ready to test...\n</div>
+
+    <script>
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const time = new Date().toLocaleTimeString();
+            logDiv.textContent += `[${time}] ${message}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('log').textContent = 'Log cleared...\n';
+        }
+
+        function testBasicConnection() {
+            log('🔌 Testing basic WebSocket connection...');
+            
+            try {
+                // Test without token first
+                const socket = new SockJS('http://localhost:8081/ws');
+                
+                socket.onopen = function() {
+                    log('✅ Basic SockJS connection opened!');
+                    socket.close();
+                };
+                
+                socket.onclose = function(event) {
+                    log(`🔌 Connection closed: Code ${event.code}, Reason: ${event.reason}`);
+                    if (event.code === 1000) {
+                        log('✅ Clean connection close - WebSocket endpoint is working!');
+                    } else {
+                        log('❌ Connection failed - WebSocket endpoint issue');
+                    }
+                };
+                
+                socket.onerror = function(error) {
+                    log(`❌ Connection error: ${error}`);
+                };
+                
+            } catch (error) {
+                log(`❌ Test failed: ${error.message}`);
+            }
+        }
+
+        async function testWithAuth() {
+            log('🔑 Testing with authentication...');
+            
+            try {
+                // Get fresh token
+                const response = await fetch('http://localhost:8081/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        phoneNumber: '9807985708',
+                        password: 'vinay123'
+                    })
+                });
+                
+                if (response.ok) {
+                    const authData = await response.json();
+                    const token = authData.token;
+                    log(`✅ Got token: ${token.substring(0, 20)}...`);
+                    
+                    // Test with token
+                    const socket = new SockJS(`http://localhost:8081/ws?token=${token}`);
+                    
+                    socket.onopen = function() {
+                        log('✅ Authenticated connection opened!');
+                        
+                        // Try STOMP
+                        const stomp = Stomp.over(socket);
+                        stomp.debug = function(str) { log(`[STOMP] ${str}`); };
+                        
+                        stomp.connect({}, 
+                            function(frame) {
+                                log('✅ STOMP connected!');
+                                log(`📄 Frame: ${frame}`);
+                                stomp.disconnect();
+                            },
+                            function(error) {
+                                log(`❌ STOMP failed: ${error}`);
+                            }
+                        );
+                    };
+                    
+                    socket.onclose = function(event) {
+                        log(`🔌 Auth connection closed: Code ${event.code}, Reason: ${event.reason}`);
+                    };
+                    
+                    socket.onerror = function(error) {
+                        log(`❌ Auth connection error: ${error}`);
+                    };
+                    
+                } else {
+                    log(`❌ Login failed: ${response.status}`);
+                }
+                
+            } catch (error) {
+                log(`❌ Auth test failed: ${error.message}`);
+            }
+        }
+
+        // Auto-run basic test
+        window.onload = function() {
+            log('🔧 Simple WebSocket test loaded');
+            log('📡 WebSocket URL: http://localhost:8081/ws');
+        };
+    </script>
+</body>
+</html> 

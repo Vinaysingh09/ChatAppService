@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Enhanced WebSocket Debug</title>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
+        .section { margin: 15px 0; padding: 15px; border: 1px solid #ddd; background: #f9f9f9; border-radius: 5px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        input, button { padding: 8px; margin: 5px; border: 1px solid #ccc; border-radius: 4px; }
+        button { background: #007bff; color: white; cursor: pointer; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        #logs { border: 1px solid #ccc; padding: 10px; height: 400px; overflow-y: scroll; 
+                font-family: monospace; background: #f0f0f0; white-space: pre-wrap; font-size: 12px; }
+        .success { color: green; font-weight: bold; }
+        .error { color: red; font-weight: bold; }
+        .info { color: blue; }
+        .warning { color: orange; font-weight: bold; }
+        .token-info { background: #e9ecef; padding: 10px; border-radius: 4px; margin: 10px 0; word-break: break-all; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Enhanced WebSocket Debug Tool</h1>
+        
+        <div class="grid">
+            <div>
+                <div class="section">
+                    <h3>🔗 Step 1: Test Server</h3>
+                    <button id="testServerBtn">Test Server Connection</button>
+                    <div id="serverStatus"></div>
+                </div>
+                
+                <div class="section">
+                    <h3>🔐 Step 2: Authentication</h3>
+                    <input type="text" id="phone" placeholder="Phone Number" value="+1234567890" style="width: 200px;">
+                    <input type="password" id="password" placeholder="Password" value="password123" style="width: 200px;">
+                    <br>
+                    <button id="loginBtn">Login & Get Token</button>
+                    <button id="validateTokenBtn" disabled>Validate Token</button>
+                    <div id="loginStatus"></div>
+                    <div id="tokenInfo"></div>
+                </div>
+                
+                <div class="section">
+                    <h3>🔌 Step 3: WebSocket Tests</h3>
+                    <button id="testSockJSBtn" disabled>Test SockJS Only</button>
+                    <button id="testWSFullBtn" disabled>Test Full WebSocket</button>
+                    <button id="testWSWithoutTokenBtn">Test Without Token</button>
+                    <div id="wsStatus"></div>
+                </div>
+            </div>
+            
+            <div>
+                <div class="section">
+                    <h3>📋 Debug Information</h3>
+                    <button onclick="clearLogs()">Clear Logs</button>
+                    <button onclick="copyLogs()">Copy Logs</button>
+                    <div id="logs"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let jwtToken = null;
+        let tokenPayload = null;
+        const API_BASE = 'http://localhost:8081/api';
+        const WS_URL = 'http://localhost:8081/ws';
+        
+        function log(message, type = 'info') {
+            const logs = document.getElementById('logs');
+            const timestamp = new Date().toLocaleTimeString();
+            const colorClass = type;
+            logs.innerHTML += `<span class="${colorClass}">[${timestamp}] ${message}</span>\n`;
+            logs.scrollTop = logs.scrollHeight;
+            console.log(`[${timestamp}] ${message}`);
+        }
+        
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '';
+        }
+        
+        function copyLogs() {
+            const logs = document.getElementById('logs').textContent;
+            navigator.clipboard.writeText(logs).then(() => {
+                log('📋 Logs copied to clipboard!', 'success');
+            });
+        }
+        
+        // Decode JWT token to see its contents
+        function decodeJWT(token) {
+            try {
+                const parts = token.split('.');
+                const payload = JSON.parse(atob(parts[1]));
+                return payload;
+            } catch (e) {
+                log('❌ Failed to decode JWT: ' + e.message, 'error');
+                return null;
+            }
+        }
+        
+        // Test server connectivity
+        async function testServer() {
+            log('🔍 Testing server connectivity...', 'info');
+            document.getElementById('serverStatus').innerHTML = '<span style="color: orange;">Testing...</span>';
+            
+            try {
+                // Test basic connectivity
+                const startTime = Date.now();
+                const response = await fetch(`${API_BASE}/auth/login`, { 
+                    method: 'OPTIONS',
+                    mode: 'cors'
+                });
+                const responseTime = Date.now() - startTime;
+                
+                log(`✅ Server is reachable! Response time: ${responseTime}ms`, 'success');
+                document.getElementById('serverStatus').innerHTML = '<span style="color: green;">✅ Online (' + responseTime + 'ms)</span>';
+                
+                // Test WebSocket endpoint specifically
+                log('🔍 Testing WebSocket endpoint availability...', 'info');
+                try {
+                    const wsResponse = await fetch(`http://localhost:8081/ws`, { method: 'GET' });
+                    log(`📡 WebSocket endpoint response: ${wsResponse.status}`, 'info');
+                } catch (wsError) {
+                    log(`⚠️ WebSocket endpoint test failed: ${wsError.message}`, 'warning');
+                    log('💡 This is normal - WebSocket endpoints don\'t respond to HTTP GET', 'info');
+                }
+                
+                return true;
+            } catch (error) {
+                log(`❌ Server is NOT reachable: ${error.message}`, 'error');
+                log('💡 Make sure server is running: java -jar target/chat-application-1.0.0.jar', 'warning');
+                document.getElementById('serverStatus').innerHTML = '<span style="color: red;">❌ Offline</span>';
+                return false;
+            }
+        }
+        
+        // Test login and get JWT token
+        async function testLogin() {
+            const phone = document.getElementById('phone').value;
+            const password = document.getElementById('password').value;
+            
+            log(`🔐 Attempting login for: ${phone}`, 'info');
+            document.getElementById('loginStatus').innerHTML = '<span style="color: orange;">Logging in...</span>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        phoneNumber: phone,
+                        password: password
+                    })
+                });
+                
+                log(`📡 Login response status: ${response.status}`, 'info');
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    jwtToken = data.token;
+                    tokenPayload = decodeJWT(jwtToken);
+                    
+                    log(`✅ Login successful!`, 'success');
+                    log(`📋 Token length: ${jwtToken.length} characters`, 'info');
+                    
+                    if (tokenPayload) {
+                        log(`👤 Token subject: ${tokenPayload.sub}`, 'info');
+                        log(`⏰ Token expires: ${new Date(tokenPayload.exp * 1000).toLocaleString()}`, 'info');
+                        log(`🕐 Token issued: ${new Date(tokenPayload.iat * 1000).toLocaleString()}`, 'info');
+                        
+                        // Check if token is expired
+                        const now = Math.floor(Date.now() / 1000);
+                        if (tokenPayload.exp < now) {
+                            log(`⚠️ WARNING: Token is EXPIRED!`, 'error');
+                        } else {
+                            log(`✅ Token is valid for ${Math.floor((tokenPayload.exp - now) / 60)} more minutes`, 'success');
+                        }
+                    }
+                    
+                    document.getElementById('loginStatus').innerHTML = '<span style="color: green;">✅ Logged in</span>';
+                    document.getElementById('tokenInfo').innerHTML = `
+                        <div class="token-info">
+                            <strong>JWT Token:</strong><br>
+                            ${jwtToken.substring(0, 50)}...<br>
+                            <strong>Subject:</strong> ${tokenPayload?.sub || 'N/A'}<br>
+                            <strong>Expires:</strong> ${tokenPayload ? new Date(tokenPayload.exp * 1000).toLocaleString() : 'N/A'}
+                        </div>
+                    `;
+                    
+                    // Enable WebSocket test buttons
+                    document.getElementById('testSockJSBtn').disabled = false;
+                    document.getElementById('testWSFullBtn').disabled = false;
+                    document.getElementById('validateTokenBtn').disabled = false;
+                    
+                } else {
+                    const errorText = await response.text();
+                    log(`❌ Login failed: ${response.status} - ${errorText}`, 'error');
+                    document.getElementById('loginStatus').innerHTML = '<span style="color: red;">❌ Failed</span>';
+                    
+                    if (response.status === 401) {
+                        log('💡 TIP: Wrong credentials or user does not exist', 'warning');
+                    } else if (response.status === 500) {
+                        log('💡 TIP: Server error - check database connection', 'warning');
+                    }
+                }
+            } catch (error) {
+                log(`❌ Login error: ${error.message}`, 'error');
+                document.getElementById('loginStatus').innerHTML = '<span style="color: red;">❌ Error</span>';
+            }
+        }
+        
+        // Validate token by calling a protected endpoint
+        async function validateToken() {
+            if (!jwtToken) {
+                log('❌ No token to validate', 'error');
+                return;
+            }
+            
+            log('🔍 Validating token by calling /api/users/me...', 'info');
+            
+            try {
+                const response = await fetch(`${API_BASE}/users/me`, {
+                    headers: {
+                        'Authorization': `Bearer ${jwtToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const userData = await response.json();
+                    log(`✅ Token is valid! User: ${userData.username} (${userData.phoneNumber})`, 'success');
+                } else {
+                    log(`❌ Token validation failed: ${response.status}`, 'error');
+                    if (response.status === 401) {
+                        log('💡 Token is invalid or expired', 'warning');
+                    }
+                }
+            } catch (error) {
+                log(`❌ Token validation error: ${error.message}`, 'error');
+            }
+        }
+        
+        // Test SockJS connection only (no STOMP)
+        function testSockJSOnly() {
+            if (!jwtToken) {
+                log('❌ No JWT token available. Please login first.', 'error');
+                return;
+            }
+            
+            log('🔌 Testing SockJS connection only...', 'info');
+            log(`📍 URL: ${WS_URL}?token=${jwtToken.substring(0, 20)}...`, 'info');
+            
+            const socket = new SockJS(`${WS_URL}?token=${jwtToken}`);
+            
+            socket.onopen = function() {
+                log('✅ SockJS connection opened successfully!', 'success');
+                document.getElementById('wsStatus').innerHTML = '<span style="color: green;">✅ SockJS Connected</span>';
+                
+                // Close after 2 seconds
+                setTimeout(() => {
+                    socket.close();
+                    log('🔌 Closing SockJS connection...', 'info');
+                }, 2000);
+            };
+            
+            socket.onclose = function(event) {
+                log(`🔌 SockJS connection closed: Code ${event.code}, Reason: "${event.reason || 'No reason'}"`, 'warning');
+                document.getElementById('wsStatus').innerHTML = '<span style="color: orange;">🔌 Disconnected</span>';
+                
+                // Detailed error analysis
+                if (event.code === 1002) {
+                    log('💡 Error 1002: Protocol error - Server rejected connection', 'error');
+                    log('💡 Possible causes:', 'info');
+                    log('   - JWT authentication failed on server side', 'info');
+                    log('   - Server error during handshake', 'info');
+                    log('   - Check server console for authentication logs', 'info');
+                } else if (event.code === 1006) {
+                    log('💡 Error 1006: Connection lost abnormally', 'error');
+                    log('   - Server might be down', 'info');
+                    log('   - Network connectivity issue', 'info');
+                } else if (event.code === 1000) {
+                    log('✅ Code 1000: Normal closure', 'success');
+                }
+            };
+            
+            socket.onerror = function(error) {
+                log(`❌ SockJS error: ${JSON.stringify(error)}`, 'error');
+                document.getElementById('wsStatus').innerHTML = '<span style="color: red;">❌ Error</span>';
+            };
+        }
+        
+        // Test full WebSocket with STOMP
+        function testFullWebSocket() {
+            if (!jwtToken) {
+                log('❌ No JWT token available. Please login first.', 'error');
+                return;
+            }
+            
+            log('🔌 Testing full WebSocket with STOMP...', 'info');
+            log(`📍 URL: ${WS_URL}?token=${jwtToken.substring(0, 20)}...`, 'info');
+            
+            const socket = new SockJS(`${WS_URL}?token=${jwtToken}`);
+            const stompClient = Stomp.over(socket);
+            
+            // Enable STOMP debug
+            stompClient.debug = function(str) {
+                log(`[STOMP] ${str}`, 'info');
+            };
+            
+            stompClient.connect({}, 
+                function(frame) {
+                    log(`✅ STOMP connected successfully!`, 'success');
+                    log(`📄 Connection frame: ${frame}`, 'success');
+                    document.getElementById('wsStatus').innerHTML = '<span style="color: green;">✅ Full WebSocket Connected</span>';
+                    
+                    // Test subscription and heartbeat
+                    stompClient.subscribe('/user/queue/heartbeat', function(message) {
+                        log(`💓 Heartbeat response: ${message.body}`, 'success');
+                    });
+                    
+                    stompClient.send('/app/heartbeat', {}, 'ping');
+                    
+                    // Disconnect after 5 seconds
+                    setTimeout(() => {
+                        stompClient.disconnect();
+                        log('🔌 Disconnecting STOMP client...', 'info');
+                    }, 5000);
+                },
+                function(error) {
+                    log(`❌ STOMP connection failed: ${error}`, 'error');
+                    document.getElementById('wsStatus').innerHTML = '<span style="color: red;">❌ STOMP Failed</span>';
+                }
+            );
+        }
+        
+        // Test WebSocket without token (should fail)
+        function testWithoutToken() {
+            log('🔌 Testing WebSocket connection WITHOUT token (should fail)...', 'info');
+            log(`📍 URL: ${WS_URL} (no token)`, 'info');
+            
+            const socket = new SockJS(WS_URL);
+            
+            socket.onopen = function() {
+                log('⚠️ SockJS opened without token - this should not happen!', 'warning');
+            };
+            
+            socket.onclose = function(event) {
+                log(`✅ Expected failure: Code ${event.code}, Reason: "${event.reason || 'No reason'}"`, 'success');
+                if (event.code === 1002) {
+                    log('✅ Good! Server correctly rejected connection without token', 'success');
+                }
+            };
+            
+            socket.onerror = function(error) {
+                log(`✅ Expected error without token: ${JSON.stringify(error)}`, 'success');
+            };
+        }
+        
+        // Event listeners
+        document.addEventListener('DOMContentLoaded', function() {
+            log('🚀 Enhanced WebSocket Debug Tool loaded', 'success');
+            log('💡 Follow the steps in order: Test Server → Login → Test WebSocket', 'info');
+            
+            document.getElementById('testServerBtn').addEventListener('click', testServer);
+            document.getElementById('loginBtn').addEventListener('click', testLogin);
+            document.getElementById('validateTokenBtn').addEventListener('click', validateToken);
+            document.getElementById('testSockJSBtn').addEventListener('click', testSockJSOnly);
+            document.getElementById('testWSFullBtn').addEventListener('click', testFullWebSocket);
+            document.getElementById('testWSWithoutTokenBtn').addEventListener('click', testWithoutToken);
+            
+            // Auto-test server connectivity
+            setTimeout(testServer, 500);
+        });
+        
+    </script>
+</body>
+</html> 

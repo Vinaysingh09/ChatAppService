@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fast WebSocket Chat</title>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .chat-container { max-width: 600px; margin: 0 auto; }
+        .messages { height: 400px; border: 1px solid #ccc; padding: 10px; overflow-y: auto; margin-bottom: 10px; }
+        .message { margin-bottom: 10px; padding: 5px; border-radius: 5px; }
+        .message.sent { background-color: #e3f2fd; text-align: right; }
+        .message.received { background-color: #f5f5f5; }
+        .input-area { display: flex; gap: 10px; }
+        .input-area input { flex: 1; padding: 10px; }
+        .input-area button { padding: 10px 20px; }
+        .status { padding: 10px; text-align: center; font-weight: bold; }
+        .connected { color: green; }
+        .disconnected { color: red; }
+        .connecting { color: orange; }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <h1>🚀 Fast WebSocket Chat</h1>
+        
+        <!-- Connection Setup -->
+        <div>
+            <h3>Setup Connection</h3>
+            <input type="text" id="phoneNumber" placeholder="Phone Number (+1234567890)" value="+1234567890">
+            <input type="password" id="password" placeholder="Password" value="password123">
+            <button onclick="loginAndConnect()">Login & Connect</button>
+        </div>
+        
+        <div>
+            <input type="number" id="chatId" placeholder="Chat ID" value="1">
+            <button onclick="joinChat()">Join Chat</button>
+        </div>
+        
+        <!-- Status -->
+        <div id="status" class="status disconnected">Disconnected</div>
+        
+        <!-- Messages Area -->
+        <div id="messages" class="messages"></div>
+        
+        <!-- Message Input -->
+        <div class="input-area">
+            <input type="text" id="messageInput" placeholder="Type your message..." onkeypress="handleKeyPress(event)">
+            <input type="file" id="fileInput" accept="image/*,video/*,audio/*" onchange="handleFileUpload(event)">
+            <button onclick="sendMessage()">Send</button>
+        </div>
+        
+        <!-- Current User Info -->
+        <div id="userInfo"></div>
+    </div>
+
+    <script>
+        // ================================
+        // 🔥 FAST WEBSOCKET IMPLEMENTATION
+        // ================================
+        
+        let stompClient = null;
+        let currentUser = null;
+        let currentChatId = null;
+        let jwtToken = null;
+        
+        const API_BASE = 'http://localhost:8081/api';
+        const WS_URL = 'http://localhost:8081/ws';
+        
+        // ================================
+        // 🚀 AUTHENTICATION & CONNECTION
+        // ================================
+        
+        async function loginAndConnect() {
+            const phoneNumber = document.getElementById('phoneNumber').value;
+            const password = document.getElementById('password').value;
+            
+            try {
+                updateStatus('Logging in...', 'connecting');
+                
+                // 1. Login via API to get JWT token
+                const loginResponse = await fetch(`${API_BASE}/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        phoneNumber: phoneNumber,
+                        password: password
+                    })
+                });
+                
+                if (!loginResponse.ok) {
+                    throw new Error('Login failed');
+                }
+                
+                const authData = await loginResponse.json();
+                jwtToken = authData.token;
+                
+                // 2. Get current user info
+                const userResponse = await fetch(`${API_BASE}/users/me`, {
+                    headers: {
+                        'Authorization': `Bearer ${jwtToken}`
+                    }
+                });
+                
+                currentUser = await userResponse.json();
+                document.getElementById('userInfo').innerHTML = `
+                    <p><strong>Logged in as:</strong> ${currentUser.username} (${currentUser.phoneNumber})</p>
+                `;
+                
+                // 3. Connect to WebSocket with JWT token
+                connectWebSocket();
+                
+            } catch (error) {
+                console.error('Login error:', error);
+                updateStatus('Login failed: ' + error.message, 'disconnected');
+            }
+        }
+        
+        function connectWebSocket() {
+            updateStatus('Connecting to WebSocket...', 'connecting');
+            
+            // Create SockJS connection with JWT token
+            const socket = new SockJS(`${WS_URL}?token=${jwtToken}`);
+            stompClient = Stomp.over(socket);
+            
+            // Disable debug logging for performance
+            stompClient.debug = null;
+            
+            stompClient.connect({}, 
+                function(frame) {
+                    console.log('✅ WebSocket Connected:', frame);
+                    updateStatus('Connected - Ready for real-time messaging!', 'connected');
+                },
+                function(error) {
+                    console.error('❌ WebSocket Connection Failed:', error);
+                    updateStatus('Connection failed: ' + error, 'disconnected');
+                }
+            );
+        }
+        
+        // ================================
+        // 💬 REAL-TIME MESSAGING
+        // ================================
+        
+        async function joinChat() {
+            const chatId = document.getElementById('chatId').value;
+            
+            if (!stompClient || !stompClient.connected) {
+                alert('Please connect to WebSocket first!');
+                return;
+            }
+            
+            try {
+                // Unsubscribe from previous chat
+                if (currentChatId && window.chatSubscription) {
+                    window.chatSubscription.unsubscribe();
+                }
+                
+                currentChatId = chatId;
+                
+                // Subscribe to chat messages - INSTANT DELIVERY! 🚀
+                window.chatSubscription = stompClient.subscribe(`/topic/chat/${chatId}`, function(message) {
+                    const messageData = JSON.parse(message.body);
+                    displayMessage(messageData);
+                });
+                
+                // Load existing messages via API (one-time)
+                const response = await fetch(`${API_BASE}/chats/${chatId}/messages`, {
+                    headers: {
+                        'Authorization': `Bearer ${jwtToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const messages = await response.json();
+                    clearMessages();
+                    messages.forEach(displayMessage);
+                }
+                
+                updateStatus(`Connected to Chat ${chatId} - Real-time messaging active!`, 'connected');
+                
+            } catch (error) {
+                console.error('Join chat error:', error);
+                alert('Failed to join chat: ' + error.message);
+            }
+        }
+        
+        function sendMessage() {
+            const messageInput = document.getElementById('messageInput');
+            const content = messageInput.value.trim();
+            
+            if (!content || !currentChatId || !stompClient) {
+                return;
+            }
+            
+            // 🚀 INSTANT MESSAGE SENDING via WebSocket
+            const messageData = {
+                type: "TEXT",
+                content: content,
+                mediaUrl: null
+            };
+            
+            // Send via WebSocket - ULTRA FAST! ⚡
+            stompClient.send(`/app/chat/${currentChatId}/send`, {}, JSON.stringify(messageData));
+            
+            // Clear input immediately for fast UX
+            messageInput.value = '';
+        }
+        
+        async function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file || !currentChatId) return;
+            
+            try {
+                updateStatus('Uploading file...', 'connecting');
+                
+                // 1. Upload file via API
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                const uploadResponse = await fetch(`${API_BASE}/files/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!uploadResponse.ok) {
+                    throw new Error('File upload failed');
+                }
+                
+                const uploadData = await uploadResponse.json();
+                
+                // 2. Send file message via WebSocket - INSTANT! 🚀
+                const messageData = {
+                    type: getFileType(file.type),
+                    content: null,
+                    mediaUrl: uploadData.fileUrl
+                };
+                
+                stompClient.send(`/app/chat/${currentChatId}/send`, {}, JSON.stringify(messageData));
+                
+                // Clear input
+                event.target.value = '';
+                updateStatus(`Connected to Chat ${currentChatId} - Real-time messaging active!`, 'connected');
+                
+            } catch (error) {
+                console.error('File upload error:', error);
+                updateStatus('File upload failed: ' + error.message, 'disconnected');
+            }
+        }
+        
+        // ================================
+        // 🎨 UI FUNCTIONS
+        // ================================
+        
+        function displayMessage(message) {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            
+            const isOwnMessage = currentUser && message.sender.id === currentUser.id;
+            messageDiv.className = `message ${isOwnMessage ? 'sent' : 'received'}`;
+            
+            let contentHtml = '';
+            
+            if (message.messageType === 'TEXT') {
+                contentHtml = `<div>${escapeHtml(message.content)}</div>`;
+            } else if (message.messageType === 'IMAGE') {
+                contentHtml = `<div><img src="${message.mediaUrl}" style="max-width: 200px; max-height: 200px;" alt="Image"></div>`;
+            } else if (message.messageType === 'VIDEO') {
+                contentHtml = `<div><video src="${message.mediaUrl}" controls style="max-width: 200px; max-height: 200px;"></video></div>`;
+            } else if (message.messageType === 'AUDIO') {
+                contentHtml = `<div><audio src="${message.mediaUrl}" controls></audio></div>`;
+            } else {
+                contentHtml = `<div><a href="${message.mediaUrl}" target="_blank">📎 File</a></div>`;
+            }
+            
+            messageDiv.innerHTML = `
+                <div><strong>${escapeHtml(message.sender.username)}</strong></div>
+                ${contentHtml}
+                <div style="font-size: 0.8em; color: #666; margin-top: 5px;">
+                    ${new Date(message.sentAt).toLocaleTimeString()}
+                </div>
+            `;
+            
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        function clearMessages() {
+            document.getElementById('messages').innerHTML = '';
+        }
+        
+        function updateStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+        }
+        
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+        
+        // ================================
+        // 🛠️ UTILITY FUNCTIONS
+        // ================================
+        
+        function getFileType(mimeType) {
+            if (mimeType.startsWith('image/')) return 'IMAGE';
+            if (mimeType.startsWith('video/')) return 'VIDEO';
+            if (mimeType.startsWith('audio/')) return 'AUDIO';
+            return 'FILE';
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // ================================
+        // 🚀 PERFORMANCE OPTIMIZATIONS
+        // ================================
+        
+        // Auto-reconnect on disconnect
+        window.addEventListener('beforeunload', function() {
+            if (stompClient) {
+                stompClient.disconnect();
+            }
+        });
+        
+        // Heartbeat to keep connection alive
+        setInterval(function() {
+            if (stompClient && stompClient.connected) {
+                // Send heartbeat
+                stompClient.send('/app/heartbeat', {}, '{}');
+            }
+        }, 30000); // Every 30 seconds
+        
+    </script>
+</body>
+</html> 
