@@ -12,6 +12,7 @@ import java.util.Optional;
 @Repository
 public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByPhoneNumber(String phoneNumber);
+    Optional<User> findByUsername(String username);
     boolean existsByPhoneNumber(String phoneNumber);
     
     // MySQL 8.0+ compatible search query with REGEXP_REPLACE

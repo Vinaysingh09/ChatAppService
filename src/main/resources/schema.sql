@@ -38,14 +38,44 @@ CREATE TABLE IF NOT EXISTS messages (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     chat_id BIGINT NOT NULL,
     sender_id BIGINT NOT NULL,
-    message_type ENUM('TEXT', 'IMAGE', 'VIDEO', 'AUDIO', 'FILE') NOT NULL,
+    message_type ENUM('TEXT', 'IMAGE', 'VIDEO', 'AUDIO', 'VOICE', 'FILE') NOT NULL,
     content TEXT,
     media_url VARCHAR(255),
+    voice_duration VARCHAR(10),
     sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    edited_at TIMESTAMP,
+    is_forwarded BOOLEAN DEFAULT FALSE,
+    reply_to_id BIGINT,
+    status ENUM('SENT', 'DELIVERED', 'READ') NOT NULL DEFAULT 'SENT',
     FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
     FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (reply_to_id) REFERENCES messages(id) ON DELETE SET NULL,
     INDEX idx_chat_id (chat_id),
-    INDEX idx_sender_id (sender_id)
+    INDEX idx_sender_id (sender_id),
+    INDEX idx_reply_to_id (reply_to_id)
+);
+
+-- Message Edit History Table
+CREATE TABLE IF NOT EXISTS message_edit_history (
+    message_id BIGINT NOT NULL,
+    content TEXT NOT NULL,
+    edited_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+    INDEX idx_message_id (message_id)
+);
+
+-- Reactions Table
+CREATE TABLE IF NOT EXISTS reactions (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    message_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    type ENUM('LIKE', 'HEART', 'LAUGH', 'SURPRISED', 'SAD', 'ANGRY') NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_reaction (message_id, user_id),
+    FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_message_id (message_id),
+    INDEX idx_user_id (user_id)
 );
 
 -- Message Status Table

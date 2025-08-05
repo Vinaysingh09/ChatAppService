@@ -1,4 +1,4 @@
-FROM openjdk:17-jdk-slim
+FROM eclipse-temurin:21-jdk-jammy
 
 WORKDIR /app
 
@@ -16,7 +16,7 @@ RUN mvn clean package -DskipTests
 RUN mkdir -p uploads
 
 # Expose port
-EXPOSE 8080
+EXPOSE ${PORT}
 
 # Run the application
 CMD ["java", "-jar", "target/chat-application-1.0.0.jar"] 

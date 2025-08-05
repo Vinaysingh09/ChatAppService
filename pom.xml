@@ -114,6 +114,20 @@
                     </annotationProcessorPaths>
                 </configuration>
             </plugin>
+             <plugin>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-maven-plugin</artifactId>
+            <!-- Optional: If you need to exclude resources specifically during repackaging -->
+            <configuration>
+                <excludes>
+                   <!-- <exclude>
+                        <groupId>org.springframework.boot</groupId>
+                        <artifactId>spring-boot-starter-tomcat</artifactId>
+                    </exclude>-->
+                    <!-- Add other exclusions for specific artifacts if needed -->
+                </excludes>
+            </configuration>
+        </plugin>
         </plugins>
     </build>
 </project> 
