@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS messages (
 
 -- Message Edit History Table
 CREATE TABLE IF NOT EXISTS message_edit_history (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
     message_id BIGINT NOT NULL,
     content TEXT NOT NULL,
     edited_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

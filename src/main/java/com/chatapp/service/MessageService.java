@@ -2,6 +2,7 @@ package com.chatapp.service;
 
 import com.chatapp.model.Chat;
 import com.chatapp.model.Message;
+import com.chatapp.model.MessageEditHistory;
 import com.chatapp.model.Reaction;
 import com.chatapp.model.User;
 import com.chatapp.repository.ChatRepository;
@@ -55,15 +56,15 @@ public class MessageService {
         reaction.setUser(user);
         reaction.setType(type);
         message.getReactions().add(reaction);
-        
+
         Message updatedMessage = messageRepository.save(message);
-        
+
         // Send WebSocket notification
         Map<String, Object> messageUpdate = new HashMap<>();
         messageUpdate.put("type", "MESSAGE_UPDATED");
         messageUpdate.put("data", updatedMessage);
         messagingTemplate.convertAndSend("/topic/chat/" + message.getChat().getId(), messageUpdate);
-        
+
         return updatedMessage;
     }
 
@@ -71,12 +72,12 @@ public class MessageService {
     public void removeReaction(Long messageId, String username) {
         User user = userRepository.findByPhoneNumber(username)
                 .orElseThrow(() -> new RuntimeException("User not found"));
-        
+
         reactionRepository.deleteByMessageIdAndUserId(messageId, user.getId());
-        
+
         Message message = messageRepository.findById(messageId)
                 .orElseThrow(() -> new RuntimeException("Message not found"));
-        
+
         // Send WebSocket notification
         Map<String, Object> messageUpdate = new HashMap<>();
         messageUpdate.put("type", "MESSAGE_UPDATED");
@@ -88,24 +89,28 @@ public class MessageService {
     public Message editMessage(Long messageId, String newContent, String username) {
         Message message = messageRepository.findById(messageId)
                 .orElseThrow(() -> new RuntimeException("Message not found"));
-        
+
         if (!message.getSender().getUsername().equals(username)) {
             throw new RuntimeException("Not authorized to edit this message");
         }
 
         // Add current content to edit history
-        message.getEditHistory().add(message.getContent());
+        MessageEditHistory history = new MessageEditHistory();
+        history.setMessage(message);
+        history.setContent(message.getContent());
+        history.setEditedAt(LocalDateTime.now());
+        message.getEditHistory().add(history);
         message.setContent(newContent);
         message.setEditedAt(LocalDateTime.now());
-        
+
         Message updatedMessage = messageRepository.save(message);
-        
+
         // Send WebSocket notification
         Map<String, Object> messageUpdate = new HashMap<>();
         messageUpdate.put("type", "MESSAGE_UPDATED");
         messageUpdate.put("data", updatedMessage);
         messagingTemplate.convertAndSend("/topic/chat/" + message.getChat().getId(), messageUpdate);
-        
+
         return updatedMessage;
     }
 
@@ -113,21 +118,20 @@ public class MessageService {
     public void deleteMessage(Long messageId, String username) {
         Message message = messageRepository.findById(messageId)
                 .orElseThrow(() -> new RuntimeException("Message not found"));
-        
+
         if (!message.getSender().getPhoneNumber().equals(username)) {
             throw new RuntimeException("Not authorized to delete this message");
         }
 
         Long chatId = message.getChat().getId();
         messageRepository.delete(message);
-        
+
         // Send WebSocket notification
         Map<String, Object> messageUpdate = new HashMap<>();
         messageUpdate.put("type", "MESSAGE_DELETED");
         messageUpdate.put("data", Map.of(
-            "messageId", messageId,
-            "chatId", chatId
-        ));
+                "messageId", messageId,
+                "chatId", chatId));
         messagingTemplate.convertAndSend("/topic/chat/" + chatId, messageUpdate);
     }
 
@@ -147,19 +151,19 @@ public class MessageService {
         forwardedMessage.setContent(originalMessage.getContent());
         forwardedMessage.setMediaUrl(originalMessage.getMediaUrl());
         forwardedMessage.setForwarded(true);
-        
+
         Message savedMessage = messageRepository.save(forwardedMessage);
-        
+
         // Send WebSocket notification
         Map<String, Object> messageUpdate = new HashMap<>();
         messageUpdate.put("type", "MESSAGE_CREATED");
         messageUpdate.put("data", savedMessage);
         messagingTemplate.convertAndSend("/topic/chat/" + targetChatId, messageUpdate);
-        
+
         return savedMessage;
     }
 
     public Page<Message> searchMessages(String query, Long chatId, Pageable pageable) {
         return messageRepository.searchMessages(chatId, query, pageable);
     }
-} 
+}

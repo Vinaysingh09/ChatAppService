@@ -39,10 +39,8 @@ public class Message {
 
     private LocalDateTime editedAt;
 
-    @Column(columnDefinition = "TEXT")
-    @ElementCollection
-    @CollectionTable(name = "message_edit_history", joinColumns = @JoinColumn(name = "message_id"))
-    private List<String> editHistory = new ArrayList<>();
+    @OneToMany(mappedBy = "message", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<MessageEditHistory> editHistory = new ArrayList<>();
 
     @OneToMany(mappedBy = "message", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Reaction> reactions = new ArrayList<>();
@@ -147,11 +145,11 @@ public class Message {
 		this.editedAt = editedAt;
 	}
 
-	public List<String> getEditHistory() {
+	public List<MessageEditHistory> getEditHistory() {
 		return editHistory;
 	}
 
-	public void setEditHistory(List<String> editHistory) {
+	public void setEditHistory(List<MessageEditHistory> editHistory) {
 		this.editHistory = editHistory;
 	}
 
